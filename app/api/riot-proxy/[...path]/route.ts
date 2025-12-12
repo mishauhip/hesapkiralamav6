@@ -8,15 +8,12 @@ const PLATFORM_TO_REGION: Record<string, string> = {
   euw1: "europe",
   eun1: "europe",
   ru: "europe",
-
   na1: "americas",
   br1: "americas",
   la1: "americas",
   la2: "americas",
-
   kr: "asia",
   jp1: "asia",
-
   oc1: "sea",
   ph2: "sea",
   sg2: "sea",
@@ -25,13 +22,7 @@ const PLATFORM_TO_REGION: Record<string, string> = {
   vn2: "sea",
 };
 
-const ALLOWED = new Set([
-  "account-by-riotid",
-  "summoner",
-  "ranked",
-  "matches",
-  "match",
-]);
+const ALLOWED = new Set(["account-by-riotid", "summoner", "ranked", "matches", "match"]);
 
 export async function GET(req: NextRequest, ctx: any) {
   const apiKey = process.env.RIOT_API_KEY;
@@ -66,27 +57,19 @@ export async function GET(req: NextRequest, ctx: any) {
   } else if (type === "summoner") {
     const puuid = seg[2];
     if (!puuid) return NextResponse.json({ error: "missing puuid" }, { status: 400 });
-    target = `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(
-      puuid
-    )}`;
+    target = `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(puuid)}`;
   } else if (type === "ranked") {
     const summonerId = seg[2];
     if (!summonerId) return NextResponse.json({ error: "missing summonerId" }, { status: 400 });
-    target = `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-summoner/${encodeURIComponent(
-      summonerId
-    )}`;
+    target = `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-summoner/${encodeURIComponent(summonerId)}`;
   } else if (type === "matches") {
     const puuid = seg[2];
     if (!puuid) return NextResponse.json({ error: "missing puuid" }, { status: 400 });
-    target = `https://${region}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodeURIComponent(
-      puuid
-    )}${qs}`;
+    target = `https://${region}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}${qs}`;
   } else if (type === "match") {
     const matchId = seg[2];
     if (!matchId) return NextResponse.json({ error: "missing matchId" }, { status: 400 });
-    target = `https://${region}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(
-      matchId
-    )}`;
+    target = `https://${region}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`;
   }
 
   const res = await fetch(target, {
@@ -97,8 +80,6 @@ export async function GET(req: NextRequest, ctx: any) {
   const text = await res.text();
   return new NextResponse(text, {
     status: res.status,
-    headers: {
-      "content-type": res.headers.get("content-type") ?? "application/json",
-    },
+    headers: { "content-type": res.headers.get("content-type") ?? "application/json" },
   });
 }
