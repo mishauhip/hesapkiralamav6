@@ -33,20 +33,17 @@ const ALLOWED = new Set([
   "match",
 ]);
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
+export async function GET(req: NextRequest, ctx: any) {
   const apiKey = process.env.RIOT_API_KEY;
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "RIOT_API_KEY missing" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "RIOT_API_KEY missing" }, { status: 500 });
   }
 
-  const seg = params.path;
-  if (!seg || seg.length === 0 || !ALLOWED.has(seg[0])) {
+  const seg: string[] = Array.isArray(ctx?.params?.path)
+    ? ctx.params.path.map(String)
+    : [];
+
+  if (seg.length === 0 || !ALLOWED.has(seg[0])) {
     return NextResponse.json({ error: "invalid path" }, { status: 400 });
   }
 
@@ -58,37 +55,37 @@ export async function GET(
   let target = "";
 
   if (type === "account-by-riotid") {
-    const gameName = decodeURIComponent(seg[2] || "");
-    const tagLine = decodeURIComponent(seg[3] || "");
+    const gameName = seg[2] ? decodeURIComponent(seg[2]) : "";
+    const tagLine = seg[3] ? decodeURIComponent(seg[3]) : "";
     if (!gameName || !tagLine) {
       return NextResponse.json({ error: "missing riot id" }, { status: 400 });
     }
     target = `https://${region}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(
       gameName
     )}/${encodeURIComponent(tagLine)}`;
-  }
-
-  if (type === "summoner") {
+  } else if (type === "summoner") {
+    const puuid = seg[2];
+    if (!puuid) return NextResponse.json({ error: "missing puuid" }, { status: 400 });
     target = `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(
-      seg[2]
+      puuid
     )}`;
-  }
-
-  if (type === "ranked") {
+  } else if (type === "ranked") {
+    const summonerId = seg[2];
+    if (!summonerId) return NextResponse.json({ error: "missing summonerId" }, { status: 400 });
     target = `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-summoner/${encodeURIComponent(
-      seg[2]
+      summonerId
     )}`;
-  }
-
-  if (type === "matches") {
+  } else if (type === "matches") {
+    const puuid = seg[2];
+    if (!puuid) return NextResponse.json({ error: "missing puuid" }, { status: 400 });
     target = `https://${region}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodeURIComponent(
-      seg[2]
+      puuid
     )}${qs}`;
-  }
-
-  if (type === "match") {
+  } else if (type === "match") {
+    const matchId = seg[2];
+    if (!matchId) return NextResponse.json({ error: "missing matchId" }, { status: 400 });
     target = `https://${region}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(
-      seg[2]
+      matchId
     )}`;
   }
 
