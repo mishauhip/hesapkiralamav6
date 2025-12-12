@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
+
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+
 import {
   Dialog,
   DialogContent,
@@ -15,6 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+
 import {
   Form,
   FormControl,
@@ -23,6 +28,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+
 import {
   Select,
   SelectContent,
@@ -30,18 +36,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
 import { Input } from "@/components/ui/input";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import * as z from "zod";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,47 +50,165 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
+
 import { toast } from "sonner";
-import { redirect } from "next/navigation";
-import Image from "next/image";
-  // Riot proxy helpers — doğrudan /api/riot-proxy üzerinden istek atar
-const BASE = process.env.NEXT_PUBLIC_RIOT_API_URL ?? "/api/riot-proxy";
-const fetchJson = async (u: string) => {
-    const r = await fetch(u, { cache: "no-store" });
-    if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
-    return r.json();
-};
 
-function enc(s: string) { return encodeURIComponent(s); }
-
-export async function getAccountByRiotID(platform: string, gameName: string, tagLine: string) {
-    return fetchJson(`${BASE}/account-by-riotid/${platform}/${enc(gameName)}/${enc(tagLine)}`);
-}
-export async function getSummonerByPUUID(platform: string, puuid: string) {
-    return fetchJson(`${BASE}/summoner/${platform}/${enc(puuid)}`);
-}
-export async function getRankedInfo(platform: string, summonerId: string) {
-    return fetchJson(`${BASE}/ranked/${platform}/${enc(summonerId)}`);
-}
-export async function getMatchList(platform: string, puuid: string, start = 0, count = 10) {
-    return fetchJson(`${BASE}/matches/${platform}/${enc(puuid)}?start=${start}&count=${count}`);
-}
-export async function getMatchDetails(platform: string, matchId: string) {
-    return fetchJson(`${BASE}/match/${platform}/${enc(matchId)}`);
-}
-import { Match, MatchParticipant, Summoner } from "@/lib/summoner";
-import { RegionId, regions } from "@/lib/regions";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 
-// İade formu için schema
+/** ----------------------------------------------------------------
+ *  Riot proxy helpers — /api/riot-proxy üzerinden istek atar
+ *  IMPORTANT: Next.js 15'te page.tsx içinde default export dışında
+ *  kendi fonksiyonlarını "export" edemezsin. O yüzden bunlar EXPORTSÜZ.
+ *  ---------------------------------------------------------------- */
+const BASE = process.env.NEXT_PUBLIC_RIOT_API_URL ?? "/api/riot-proxy";
+
+const fetchJson = async (u: string) => {
+  const r = await fetch(u, { cache: "no-store" });
+  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
+  return r.json();
+};
+
+const enc = (s: string) => encodeURIComponent(s);
+
+type PlatformRoute =
+  | "tr1"
+  | "euw1"
+  | "eun1"
+  | "na1"
+  | "br1"
+  | "la1"
+  | "la2"
+  | "oc1"
+  | "jp1"
+  | "kr"
+  | "ru";
+
+type RegionalRoute = "americas" | "europe" | "asia" | "sea";
+
+const SERVER_TO_PLATFORM: Record<string, PlatformRoute> = {
+  TR: "tr1",
+  EUW: "euw1",
+  EUNE: "eun1",
+  NA: "na1",
+  KR: "kr",
+  JP: "jp1",
+  BR: "br1",
+  LAN: "la1",
+  LAS: "la2",
+  OCE: "oc1",
+  RU: "ru",
+};
+
+const PLATFORM_TO_REGIONAL: Record<PlatformRoute, RegionalRoute> = {
+  tr1: "europe",
+  euw1: "europe",
+  eun1: "europe",
+  ru: "europe",
+  na1: "americas",
+  br1: "americas",
+  la1: "americas",
+  la2: "americas",
+  oc1: "sea",
+  jp1: "asia",
+  kr: "asia",
+};
+
+async function getAccountByRiotID(
+  regional: RegionalRoute,
+  gameName: string,
+  tagLine: string
+) {
+  return fetchJson(
+    `${BASE}/account-by-riotid/${regional}/${enc(gameName)}/${enc(tagLine)}`
+  );
+}
+
+async function getSummonerByPUUID(platform: PlatformRoute, puuid: string) {
+  return fetchJson(`${BASE}/summoner/${platform}/${enc(puuid)}`);
+}
+
+async function getRankedInfo(platform: PlatformRoute, summonerId: string) {
+  return fetchJson(`${BASE}/ranked/${platform}/${enc(summonerId)}`);
+}
+
+async function getMatchList(
+  regional: RegionalRoute,
+  puuid: string,
+  start = 0,
+  count = 10
+) {
+  return fetchJson(
+    `${BASE}/matches/${regional}/${enc(puuid)}?start=${start}&count=${count}`
+  );
+}
+
+async function getMatchDetails(regional: RegionalRoute, matchId: string) {
+  return fetchJson(`${BASE}/match/${regional}/${enc(matchId)}`);
+}
+
+/** ----------------------------------------------------------------
+ *  Minimal tipler (tek dosya olsun diye burada)
+ *  ---------------------------------------------------------------- */
+type Summoner = {
+  id: string;
+  puuid: string;
+  profileIconId: number;
+  summonerLevel: number;
+};
+
+type MatchParticipant = {
+  puuid: string;
+  win: boolean;
+  championName: string;
+
+  riotIdGameName?: string | null;
+  summonerName?: string | null;
+
+  kills: number;
+  deaths: number;
+  assists: number;
+
+  totalMinionsKilled: number;
+
+  item0: number;
+  item1: number;
+  item2: number;
+  item3: number;
+  item4: number;
+  item5: number;
+  item6: number;
+};
+
+type Match = {
+  metadata: { matchId: string };
+  info: {
+    participants: MatchParticipant[];
+    gameCreation: number;
+    gameDuration: number;
+    queueId: number;
+  };
+};
+
+/** ----------------------------------------------------------------
+ *  İade formu schema
+ *  ---------------------------------------------------------------- */
 const returnFormSchema = z.object({
-  league: z.string({
-    required_error: "Lütfen bir lig seçiniz.",
-  }),
-  flex_league: z.string({
-    required_error: "Lütfen bir flex ligi seçiniz.",
-  }),
+  league: z.string({ required_error: "Lütfen bir lig seçiniz." }),
+  flex_league: z.string({ required_error: "Lütfen bir flex ligi seçiniz." }),
   solo_lp: z.coerce
     .number()
     .min(0, { message: "Solo LP 0'dan küçük olamaz" })
@@ -106,7 +221,12 @@ const returnFormSchema = z.object({
     .default(0),
 });
 
-// Ligler
+type ReturnInputs = z.input<typeof returnFormSchema>;
+type ReturnValues = z.infer<typeof returnFormSchema>;
+
+/** ----------------------------------------------------------------
+ *  Ligler + rank image helper
+ *  ---------------------------------------------------------------- */
 const leagues = [
   "Iron 4",
   "Iron 3",
@@ -141,13 +261,8 @@ const leagues = [
   "Challenger",
 ];
 
-// Form tipi tanımları
-type ReturnInputs = z.input<typeof returnFormSchema>; // ham (undefined olabilir)
-type ReturnValues = z.infer<typeof returnFormSchema>; // doğrulanmış (number)
-
-// Lig adına göre doğru resim dosyasını döndüren yardımcı fonksiyon
 const getRankImage = (league: string): string => {
-  const lowerLeague = league.toLowerCase();
+  const lowerLeague = (league ?? "").toLowerCase();
 
   if (lowerLeague.includes("unranked")) return "unranked.png";
   if (lowerLeague.includes("demir") || lowerLeague.includes("iron"))
@@ -169,10 +284,12 @@ const getRankImage = (league: string): string => {
   if (lowerLeague.includes("grandmaster")) return "grandmaster.png";
   if (lowerLeague.includes("challenger")) return "challenger.png";
 
-  // Varsayılan olarak unranked döndür
   return "unranked.png";
 };
 
+/** ----------------------------------------------------------------
+ *  DB tipleri
+ *  ---------------------------------------------------------------- */
 type GameAccount = {
   id: string;
   username: string;
@@ -187,6 +304,8 @@ type GameAccount = {
   assigned_to: string | null;
   created_at: string;
   notes?: string;
+
+  // runtime enrichment:
   summoner?: Summoner | null;
   matches?: Match[];
 };
@@ -197,11 +316,15 @@ type AccountAssignment = {
   account_id: string;
   assigned_at: string;
   returned_at: string | null;
+
   league_at_return: string | null;
   flex_league_at_return: string | null;
   solo_lp_at_return: number | null;
   flex_lp_at_return: number | null;
+
   created_at: string;
+
+  // enriched
   user_email?: string;
   initial_league?: string;
   initial_flex_league?: string;
@@ -210,17 +333,29 @@ type AccountAssignment = {
 };
 
 export default function AccountDetailPage() {
-  const { id } = useParams();
+  const params = useParams();
+  const router = useRouter();
   const { user, userRole } = useAuth();
+
+  const accountId = useMemo(() => {
+    const raw = (params as any)?.id as string | string[] | undefined;
+    return Array.isArray(raw) ? raw[0] : raw;
+  }, [params]);
+
+  const isAdmin = userRole === "ADMIN";
+  const isUserAccount = (acc: GameAccount | null) =>
+    !!acc && acc.assigned_to === user?.id;
+
   const [account, setAccount] = useState<GameAccount | null>(null);
   const [assignments, setAssignments] = useState<AccountAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [returnLoading, setReturnLoading] = useState(false);
   const [showReturnDialog, setShowReturnDialog] = useState(false);
+
   const [showReleaseDialog, setShowReleaseDialog] = useState(false);
   const [releaseLoading, setReleaseLoading] = useState(false);
 
-  // İade formu
   const returnForm = useForm<ReturnInputs, any, ReturnValues>({
     resolver: zodResolver(returnFormSchema),
     defaultValues: {
@@ -231,44 +366,30 @@ export default function AccountDetailPage() {
     },
   });
 
-  // Kullanıcı giriş yapmamışsa dashboard'a yönlendir
-  if (!user) {
-    redirect("/dashboard");
-  }
+  // auth guard (client-side)
+  useEffect(() => {
+    if (user === null) return; // auth henüz yükleniyor olabilir
+    if (!user) router.replace("/dashboard");
+  }, [user, router]);
 
-  // Kullanıcının admin, vip veya normal kullanıcı olduğunu kontrol et
-  const isAdmin = userRole === "ADMIN";
-  const isVIP = userRole === "VIP";
-
-  // Hesabın kullanıcıya ait olup olmadığını kontrol et
-  const isUserAccount = account && account.assigned_to === user?.id;
-
-  // Dialog açma fonksiyonu
   const openReturnDialog = () => {
     if (!account) return;
-
-    // Mevcut değerleri forma yükle
     returnForm.setValue("league", account.league);
     returnForm.setValue("flex_league", account.flex_league || "Unranked");
     returnForm.setValue("solo_lp", account.solo_lp || 0);
     returnForm.setValue("flex_lp", account.flex_lp || 0);
-
     setShowReturnDialog(true);
   };
 
-  // Hesap iade etme fonksiyonu
   const handleReturnAccount = async (values: ReturnValues) => {
     try {
       if (!account || !user) return;
 
       setReturnLoading(true);
 
-      // API endpoint'i kullanarak hesabı iade et
       const response = await fetch("/api/accounts/return", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountId: account.id,
           userId: user.id,
@@ -290,8 +411,7 @@ export default function AccountDetailPage() {
       setShowReturnDialog(false);
       returnForm.reset();
 
-      // Sayfayı yenile
-      window.location.href = "/dashboard/my-accounts";
+      router.push("/dashboard/my-accounts");
     } catch (error) {
       console.error("Hesap iade hatası:", error);
       toast.error("Hesap iade edilirken bir hata oluştu.");
@@ -300,37 +420,28 @@ export default function AccountDetailPage() {
     }
   };
 
-  // Admin tarafından hesabı serbest bırakma fonksiyonu
   const handleReleaseAccount = async () => {
     try {
       if (!account) return;
 
       setReleaseLoading(true);
 
-      // API endpoint'i kullanarak hesabı serbest bırak
       const response = await fetch("/api/admin/accounts/release", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          accountId: account.id,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.id }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        toast.error(
-          data.error || "Hesap serbest bırakılırken bir hata oluştu."
-        );
+        toast.error(data.error || "Hesap serbest bırakılırken bir hata oluştu.");
         return;
       }
 
       toast.success("Hesap başarıyla serbest bırakıldı.");
       setShowReleaseDialog(false);
 
-      // Sayfayı yenile
       window.location.reload();
     } catch (error) {
       console.error("Hesap serbest bırakma hatası:", error);
@@ -342,13 +453,14 @@ export default function AccountDetailPage() {
 
   useEffect(() => {
     const fetchAccountDetails = async () => {
+      if (!accountId) return;
+
       setLoading(true);
       try {
-        // Hesap bilgilerini getir
         const { data: accountData, error: accountError } = await supabase
           .from("game_accounts")
           .select("*")
-          .eq("id", id)
+          .eq("id", accountId)
           .single();
 
         if (accountError) {
@@ -357,115 +469,78 @@ export default function AccountDetailPage() {
           return;
         }
 
-        let account = accountData as GameAccount;
+        let acc = accountData as GameAccount;
 
-        // Riot API bilgilerini getir
-        if (account.nickname && account.server) {
+        // Riot API bilgileri (nickname + server varsa)
+        if (acc.nickname && acc.server) {
           try {
-            // Server'ı RegionId'ye dönüştür
-            const regionMap: { [key: string]: RegionId } = {
-              TR: "tr1",
-              EUW: "euw1",
-              EUNE: "eun1",
-              NA: "na1",
-              KR: "kr",
-              JP: "jp1",
-              BR: "br1",
-              LAN: "la1",
-              LAS: "la2",
-              OCE: "oc1",
-              RU: "ru",
-            };
+            const platform = SERVER_TO_PLATFORM[acc.server];
+            if (!platform) throw new Error(`Invalid server: ${acc.server}`);
 
-            const regionConfig = regions.find(
-              (r) => r.id === regionMap[account.server]
-            );
-            if (!regionConfig) {
-              throw new Error(`Invalid region: ${account.server}`);
-            }
+            const regional = PLATFORM_TO_REGIONAL[platform];
+            if (!regional) throw new Error(`No regional route for: ${platform}`);
 
-            const gameName = account.nickname.split("#")[0];
-            const tagLine = account.nickname.split("#")[1];
-            const riotAccount = await getAccountByRiotID(
-              regionConfig.platform,
-              gameName,
-              tagLine
-            );
+            const [gameName, tagLine] = acc.nickname.split("#");
+            if (!gameName || !tagLine)
+              throw new Error(`Invalid nickname (RiotID): ${acc.nickname}`);
 
-            const summoner = await getSummonerByPUUID(
-              regionMap[account.server],
-              riotAccount.puuid
-            );
+            const riotAccount = await getAccountByRiotID(regional, gameName, tagLine);
 
-            account = { ...account, summoner };
-            const rankedInfo = await getRankedInfo(
-              regionMap[account.server],
-              summoner.id
-            );
-            if (rankedInfo && rankedInfo.length > 0) {
+            const summoner = await getSummonerByPUUID(platform, riotAccount.puuid);
+            acc = { ...acc, summoner };
+
+            const rankedInfo = await getRankedInfo(platform, summoner.id);
+            if (Array.isArray(rankedInfo) && rankedInfo.length > 0) {
               const soloQueue = rankedInfo.find(
-                (queue: any) => queue.queueType === "RANKED_SOLO_5x5"
+                (q: any) => q.queueType === "RANKED_SOLO_5x5"
               );
               const flexQueue = rankedInfo.find(
-                (queue: any) => queue.queueType === "RANKED_FLEX_SR"
+                (q: any) => q.queueType === "RANKED_FLEX_SR"
               );
 
               if (soloQueue) {
-                account = {
-                  ...account,
+                acc = {
+                  ...acc,
                   league: `${soloQueue.tier} ${soloQueue.rank}`,
                   solo_lp: soloQueue.leaguePoints,
                 };
               }
               if (flexQueue) {
-                account = {
-                  ...account,
+                acc = {
+                  ...acc,
                   flex_league: `${flexQueue.tier} ${flexQueue.rank}`,
                   flex_lp: flexQueue.leaguePoints,
                 };
               }
             }
 
-            if (riotAccount && riotAccount.puuid) {
-              // Son 5 maçın detaylarını getir
-              const matchIds = await getMatchList(
-                regionConfig.platform,
-                riotAccount.puuid,
-                0,
-                5
-              );
+            // Son 5 maç
+            if (riotAccount?.puuid) {
+              const matchIds = await getMatchList(regional, riotAccount.puuid, 0, 5);
 
-              if (matchIds && matchIds.length > 0) {
+              if (Array.isArray(matchIds) && matchIds.length > 0) {
                 const matchDetails = await Promise.all(
                   matchIds.map(async (matchId: string) => {
-                    return await getMatchDetails(
-                      regionConfig.platform,
-                      matchId
-                    );
+                    return await getMatchDetails(regional, matchId);
                   })
                 );
-                account = { ...account, matches: matchDetails };
+                acc = { ...acc, matches: matchDetails as Match[] };
               }
             }
           } catch (error) {
-            console.error(
-              `Riot API bilgileri alınamadı: ${account.nickname}`,
-              error
-            );
+            console.error(`Riot API bilgileri alınamadı: ${acc.nickname}`, error);
           }
         }
 
-        setAccount(account);
+        setAccount(acc);
 
-        // Sadece admin kullanıcılar için kiralama geçmişini getir
+        // Admin için kiralama geçmişi
         if (isAdmin) {
-          // Hesabın kiralama geçmişini getir
-          const { data: assignmentsData, error: assignmentsError } =
-            await supabase
-              .from("account_assignments")
-              .select("*")
-              .eq("account_id", id)
-              .order("assigned_at", { ascending: false });
+          const { data: assignmentsData, error: assignmentsError } = await supabase
+            .from("account_assignments")
+            .select("*")
+            .eq("account_id", accountId)
+            .order("assigned_at", { ascending: false });
 
           if (assignmentsError) {
             toast.error("Kiralama geçmişi yüklenirken bir hata oluştu.");
@@ -473,36 +548,28 @@ export default function AccountDetailPage() {
             return;
           }
 
-          // Kullanıcı e-postalarını getir
-          const assignmentsWithUserInfo = await Promise.all(
+          const enriched = await Promise.all(
             (assignmentsData as AccountAssignment[]).map(async (assignment) => {
-              const { data: userData, error: userError } = await supabase
+              const { data: userData } = await supabase
                 .from("users")
                 .select("email")
                 .eq("id", assignment.user_id)
                 .single();
 
-              // Hesabın alındığı lig bilgisini doğrudan kullan
-              // Eğer initial_league alanı doluysa, onu kullan
-              // Boşsa ve hesap bilgisi varsa, hesabın mevcut ligini kullan
-              const initialLeague = assignment.initial_league || "Bilinmiyor";
-              const initialFlexLeague =
-                assignment.initial_flex_league || "Unranked";
-              const initialSoloLp = assignment.initial_solo_lp || 0;
-              const initialFlexLp = assignment.initial_flex_lp || 0;
-
               return {
                 ...assignment,
-                user_email: userData ? userData.email : "Bilinmeyen Kullanıcı",
-                initial_league: initialLeague,
-                initial_flex_league: initialFlexLeague,
-                initial_solo_lp: initialSoloLp,
-                initial_flex_lp: initialFlexLp,
+                user_email: userData?.email ?? "Bilinmeyen Kullanıcı",
+                initial_league: (assignment as any).initial_league || "Bilinmiyor",
+                initial_flex_league: (assignment as any).initial_flex_league || "Unranked",
+                initial_solo_lp: (assignment as any).initial_solo_lp ?? 0,
+                initial_flex_lp: (assignment as any).initial_flex_lp ?? 0,
               };
             })
           );
 
-          setAssignments(assignmentsWithUserInfo);
+          setAssignments(enriched);
+        } else {
+          setAssignments([]);
         }
       } catch (error) {
         toast.error("Bir hata oluştu.");
@@ -512,15 +579,13 @@ export default function AccountDetailPage() {
       }
     };
 
-    if (id) {
-      fetchAccountDetails();
-    }
-  }, [id]);
+    fetchAccountDetails();
+  }, [accountId, isAdmin]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neutral-900"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neutral-900" />
       </div>
     );
   }
@@ -534,16 +599,26 @@ export default function AccountDetailPage() {
     );
   }
 
+  const queueMap: Record<number, string> = {
+    400: "Draft Pick",
+    420: "Ranked Solo/Duo",
+    430: "Blind Pick",
+    440: "Ranked Flex",
+    450: "ARAM",
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent inline-block mb-2">
         Hesap Detayları
       </h1>
+
       <Card className="border-0 shadow-md overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-primary to-accent w-full"></div>
+        <div className="h-1 bg-gradient-to-r from-primary to-accent w-full" />
         <CardHeader>
           <CardTitle className="text-xl font-medium">Hesap Bilgileri</CardTitle>
         </CardHeader>
+
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {account.summoner ? (
@@ -551,10 +626,7 @@ export default function AccountDetailPage() {
                 <div className="relative">
                   <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-primary/20">
                     <Image
-                      src={
-                        `https://ddragon.leagueoflegends.com/cdn/15.8.1/img/profileicon/${account.summoner.profileIconId}.png` ||
-                        "https://ddragon.leagueoflegends.com/cdn/15.8.1/img/profileicon/0.png"
-                      }
+                      src={`https://ddragon.leagueoflegends.com/cdn/15.8.1/img/profileicon/${account.summoner.profileIconId}.png`}
                       alt="Profile Icon"
                       width={96}
                       height={96}
@@ -570,9 +642,7 @@ export default function AccountDetailPage() {
               <div className="col-span-1 md:col-span-3 flex justify-center mb-4">
                 <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-primary/20">
                   <Image
-                    src={
-                      "https://ddragon.leagueoflegends.com/cdn/15.8.1/img/profileicon/0.png"
-                    }
+                    src="https://ddragon.leagueoflegends.com/cdn/15.8.1/img/profileicon/0.png"
                     alt="Profile Icon"
                     width={96}
                     height={96}
@@ -581,32 +651,29 @@ export default function AccountDetailPage() {
                 </div>
               </div>
             )}
+
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">
-                Kullanıcı Adı
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">Kullanıcı Adı</p>
               <p className="text-lg font-medium">{account.username}</p>
             </div>
+
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">Şifre</p>
               <p className="text-lg font-medium">{account.password}</p>
             </div>
+
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">
-                Sunucu
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">Sunucu</p>
               <p className="text-lg font-medium">{account.server}</p>
             </div>
+
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">
-                Oyun İçi İsim
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">Oyun İçi İsim</p>
               <p className="text-lg font-medium">{account.nickname || "-"}</p>
             </div>
+
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">
-                Solo/Duo Lig
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">Solo/Duo Lig</p>
               <div className="flex items-center space-x-2">
                 <div className="w-10 h-10 flex items-center justify-center">
                   <img
@@ -616,21 +683,17 @@ export default function AccountDetailPage() {
                   />
                 </div>
                 <p className="text-lg font-medium">
-                  {account.league}{" "}
-                  {account.solo_lp ? `${account.solo_lp} LP` : ""}
+                  {account.league} {account.solo_lp ? `${account.solo_lp} LP` : ""}
                 </p>
               </div>
             </div>
+
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">
-                Flex Lig
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">Flex Lig</p>
               <div className="flex items-center space-x-2">
                 <div className="w-10 h-10 flex items-center justify-center">
                   <img
-                    src={`/images/ranks/${getRankImage(
-                      account.flex_league || "Unranked"
-                    )}`}
+                    src={`/images/ranks/${getRankImage(account.flex_league || "Unranked")}`}
                     alt={account.flex_league || "Unranked"}
                     className="w-full h-full object-contain"
                   />
@@ -641,6 +704,7 @@ export default function AccountDetailPage() {
                 </p>
               </div>
             </div>
+
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">Durum</p>
               <p className="text-lg">
@@ -655,19 +719,17 @@ export default function AccountDetailPage() {
                 )}
               </p>
             </div>
+
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">
-                Oluşturulma Tarihi
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">Oluşturulma Tarihi</p>
               <p className="text-lg font-medium">
                 {new Date(account.created_at).toLocaleDateString("tr-TR")}
               </p>
             </div>
+
             {account.notes && (
               <div className="col-span-1 md:col-span-3 space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">
-                  Notlar
-                </p>
+                <p className="text-sm font-medium text-muted-foreground">Notlar</p>
                 <div className="p-3 bg-secondary/30 rounded-md text-foreground">
                   {account.notes}
                 </div>
@@ -675,7 +737,7 @@ export default function AccountDetailPage() {
             )}
 
             {/* Admin için Hesabı Serbest Bırak butonu (hesap kiralanmışsa) */}
-            {isAdmin && account && !account.is_available && (
+            {isAdmin && !account.is_available && (
               <div className="col-span-1 md:col-span-3 mt-4">
                 <AlertDialog
                   open={showReleaseDialog}
@@ -710,12 +772,9 @@ export default function AccountDetailPage() {
             )}
 
             {/* Hesabı kiralayan kişi için İade Et butonu */}
-            {isUserAccount && (
+            {isUserAccount(account) && (
               <div className="col-span-1 md:col-span-3 mt-4">
-                <Dialog
-                  open={showReturnDialog}
-                  onOpenChange={setShowReturnDialog}
-                >
+                <Dialog open={showReturnDialog} onOpenChange={setShowReturnDialog}>
                   <DialogTrigger asChild>
                     <Button
                       variant="default"
@@ -725,6 +784,7 @@ export default function AccountDetailPage() {
                       Hesabı İade Et
                     </Button>
                   </DialogTrigger>
+
                   <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                       <DialogTitle>Hesap İade</DialogTitle>
@@ -732,6 +792,7 @@ export default function AccountDetailPage() {
                         Lütfen hesabın mevcut lig bilgilerini giriniz.
                       </DialogDescription>
                     </DialogHeader>
+
                     <Form {...returnForm}>
                       <form
                         onSubmit={returnForm.handleSubmit(handleReturnAccount)}
@@ -764,6 +825,7 @@ export default function AccountDetailPage() {
                             </FormItem>
                           )}
                         />
+
                         <FormField
                           control={returnForm.control}
                           name="solo_lp"
@@ -777,6 +839,7 @@ export default function AccountDetailPage() {
                             </FormItem>
                           )}
                         />
+
                         <FormField
                           control={returnForm.control}
                           name="flex_league"
@@ -793,9 +856,7 @@ export default function AccountDetailPage() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="Unranked">
-                                    Unranked
-                                  </SelectItem>
+                                  <SelectItem value="Unranked">Unranked</SelectItem>
                                   {leagues.map((league) => (
                                     <SelectItem key={league} value={league}>
                                       {league}
@@ -807,6 +868,7 @@ export default function AccountDetailPage() {
                             </FormItem>
                           )}
                         />
+
                         <FormField
                           control={returnForm.control}
                           name="flex_lp"
@@ -820,6 +882,7 @@ export default function AccountDetailPage() {
                             </FormItem>
                           )}
                         />
+
                         <DialogFooter className="mt-6">
                           <Button
                             type="button"
@@ -833,9 +896,7 @@ export default function AccountDetailPage() {
                             disabled={returnLoading}
                             className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90"
                           >
-                            {returnLoading
-                              ? "Hesap İade Ediliyor..."
-                              : "Hesabı İade Et"}
+                            {returnLoading ? "Hesap İade Ediliyor..." : "Hesabı İade Et"}
                           </Button>
                         </DialogFooter>
                       </form>
@@ -847,52 +908,42 @@ export default function AccountDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Maç Geçmişi */}
       {account.matches && account.matches.length > 0 && (
         <Card className="border-0 shadow-md overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-primary to-accent w-full"></div>
+          <div className="h-1 bg-gradient-to-r from-primary to-accent w-full" />
           <CardHeader>
             <CardTitle className="text-xl font-medium">Maç Geçmişi</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {account.matches.map((match) => {
-                // Oyuncunun maç verilerini bul
-                // Önce account.summoner.puuid ile eşleştirmeyi dene
-                let participant = match.info.participants.find(
-                  (p) => p.puuid === account.summoner?.puuid
-                );
-
-                // Eğer bulunamazsa, summonerName ile eşleştirmeyi dene
-                if (!participant && account.nickname) {
-                  // Nickname'i # ile böl
-                  const gameName = account.nickname.split("#")[0];
-
-                  participant = match.info.participants.find((p) => {
-                    // Riot ID veya summonerName kontrolü
-                    return (
-                      (p.riotIdGameName &&
-                        p.riotIdGameName.toLowerCase() ===
-                          gameName.toLowerCase()) ||
-                      (p.summonerName &&
-                        p.summonerName
-                          .toLowerCase()
-                          .includes(gameName.toLowerCase()))
-                    );
-                  });
-                }
+                const participant =
+                  match.info.participants.find(
+                    (p) => p.puuid === account.summoner?.puuid
+                  ) ??
+                  (() => {
+                    if (!account.nickname) return undefined;
+                    const gameName = account.nickname.split("#")[0];
+                    return match.info.participants.find((p) => {
+                      return (
+                        (p.riotIdGameName &&
+                          p.riotIdGameName.toLowerCase() === gameName.toLowerCase()) ||
+                        (p.summonerName &&
+                          p.summonerName.toLowerCase().includes(gameName.toLowerCase()))
+                      );
+                    });
+                  })();
 
                 if (!participant) return null;
 
                 const gameDate = new Date(match.info.gameCreation);
-                const gameDuration = Math.floor(match.info.gameDuration / 60);
+                const gameDurationMin = Math.max(
+                  1,
+                  Math.floor(match.info.gameDuration / 60)
+                );
                 const isWin = participant.win;
-                const queueMap: { [key: number]: string } = {
-                  400: "Draft Pick",
-                  420: "Ranked Solo/Duo",
-                  430: "Blind Pick",
-                  440: "Ranked Flex",
-                  450: "ARAM",
-                };
 
                 return (
                   <div
@@ -913,12 +964,9 @@ export default function AccountDetailPage() {
                           />
                         </div>
                         <div>
-                          <div className="font-medium">
-                            {participant.championName}
-                          </div>
+                          <div className="font-medium">{participant.championName}</div>
                           <div className="text-xs text-muted-foreground">
-                            {queueMap[match.info.queueId] ||
-                              "Bilinmeyen Oyun Modu"}
+                            {queueMap[match.info.queueId] || "Bilinmeyen Oyun Modu"}
                           </div>
                         </div>
                       </div>
@@ -926,8 +974,7 @@ export default function AccountDetailPage() {
                       <div className="flex items-center gap-2">
                         <div className="text-center">
                           <div className="font-semibold">
-                            {participant.kills} / {participant.deaths} /{" "}
-                            {participant.assists}
+                            {participant.kills} / {participant.deaths} / {participant.assists}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {(
@@ -941,14 +988,9 @@ export default function AccountDetailPage() {
 
                       <div className="flex items-center gap-2">
                         <div className="text-center">
-                          <div className="font-semibold">
-                            {participant.totalMinionsKilled} CS
-                          </div>
+                          <div className="font-semibold">{participant.totalMinionsKilled} CS</div>
                           <div className="text-xs text-muted-foreground">
-                            {(
-                              participant.totalMinionsKilled / gameDuration
-                            ).toFixed(1)}{" "}
-                            CS/min
+                            {(participant.totalMinionsKilled / gameDurationMin).toFixed(1)} CS/min
                           </div>
                         </div>
                       </div>
@@ -965,10 +1007,7 @@ export default function AccountDetailPage() {
                         ]
                           .filter((item) => item > 0)
                           .map((item, i) => (
-                            <div
-                              key={i}
-                              className="w-8 h-8 rounded overflow-hidden"
-                            >
+                            <div key={i} className="w-8 h-8 rounded overflow-hidden">
                               <img
                                 src={`https://ddragon.leagueoflegends.com/cdn/15.8.1/img/item/${item}.png`}
                                 alt={`Item ${i + 1}`}
@@ -989,10 +1028,7 @@ export default function AccountDetailPage() {
                           {isWin ? "Galibiyet" : "Mağlubiyet"}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(gameDate, {
-                            addSuffix: true,
-                            locale: tr,
-                          })}
+                          {formatDistanceToNow(gameDate, { addSuffix: true, locale: tr })}
                         </div>
                       </div>
                     </div>
@@ -1003,87 +1039,67 @@ export default function AccountDetailPage() {
           </CardContent>
         </Card>
       )}
-      {/* Kiralama geçmişi bölümü sadece admin kullanıcılar için gösterilir */}
+
+      {/* Kiralama geçmişi (admin) */}
       {isAdmin && (
         <Card className="border-0 shadow-md overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-primary to-accent w-full"></div>
+          <div className="h-1 bg-gradient-to-r from-primary to-accent w-full" />
           <CardHeader>
-            <CardTitle className="text-xl font-medium">
-              Kiralama Geçmişi
-            </CardTitle>
+            <CardTitle className="text-xl font-medium">Kiralama Geçmişi</CardTitle>
           </CardHeader>
+
           <CardContent>
             <div className="rounded-lg overflow-hidden border">
               <Table>
                 <TableHeader className="bg-secondary">
                   <TableRow>
                     <TableHead className="font-medium">Kullanıcı</TableHead>
-                    <TableHead className="font-medium">
-                      Kiralama Tarihi
-                    </TableHead>
+                    <TableHead className="font-medium">Kiralama Tarihi</TableHead>
                     <TableHead className="font-medium">İade Tarihi</TableHead>
-                    <TableHead className="font-medium">
-                      Alındığı Solo/Duo Lig
-                    </TableHead>
-                    <TableHead className="font-medium">
-                      Bırakıldığı Solo/Duo Lig
-                    </TableHead>
-                    <TableHead className="font-medium">
-                      Alındığı Flex Lig
-                    </TableHead>
-                    <TableHead className="font-medium">
-                      Bırakıldığı Flex Lig
-                    </TableHead>
+                    <TableHead className="font-medium">Alındığı Solo/Duo Lig</TableHead>
+                    <TableHead className="font-medium">Bırakıldığı Solo/Duo Lig</TableHead>
+                    <TableHead className="font-medium">Alındığı Flex Lig</TableHead>
+                    <TableHead className="font-medium">Bırakıldığı Flex Lig</TableHead>
                   </TableRow>
                 </TableHeader>
+
                 <TableBody>
                   {assignments.map((assignment) => (
-                    <TableRow
-                      key={assignment.id}
-                      className="hover:bg-secondary/50"
-                    >
-                      <TableCell className="font-medium">
-                        {assignment.user_email}
-                      </TableCell>
+                    <TableRow key={assignment.id} className="hover:bg-secondary/50">
+                      <TableCell className="font-medium">{assignment.user_email}</TableCell>
+
                       <TableCell>
-                        {new Date(assignment.assigned_at).toLocaleDateString(
-                          "tr-TR"
-                        )}
+                        {new Date(assignment.assigned_at).toLocaleDateString("tr-TR")}
                       </TableCell>
+
                       <TableCell>
                         {assignment.returned_at
-                          ? new Date(assignment.returned_at).toLocaleDateString(
-                              "tr-TR"
-                            )
+                          ? new Date(assignment.returned_at).toLocaleDateString("tr-TR")
                           : "Henüz İade Edilmedi"}
                       </TableCell>
+
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           <div className="w-8 h-8 flex items-center justify-center">
                             <img
-                              src={`/images/ranks/${getRankImage(
-                                assignment.initial_league || "Bilinmiyor"
-                              )}`}
+                              src={`/images/ranks/${getRankImage(assignment.initial_league || "Bilinmiyor")}`}
                               alt={assignment.initial_league || "Bilinmiyor"}
                               className="w-full h-full object-contain"
                             />
                           </div>
                           <span>
                             {assignment.initial_league || "Bilinmiyor"}{" "}
-                            {assignment.initial_solo_lp
-                              ? `${assignment.initial_solo_lp} LP`
-                              : ""}
+                            {assignment.initial_solo_lp ? `${assignment.initial_solo_lp} LP` : ""}
                           </span>
                         </div>
                       </TableCell>
+
                       <TableCell>
                         {assignment.league_at_return ? (
                           <div className="flex items-center space-x-2">
                             <div className="w-8 h-8 flex items-center justify-center">
                               <img
-                                src={`/images/ranks/${getRankImage(
-                                  assignment.league_at_return
-                                )}`}
+                                src={`/images/ranks/${getRankImage(assignment.league_at_return)}`}
                                 alt={assignment.league_at_return}
                                 className="w-full h-full object-contain"
                               />
@@ -1099,6 +1115,7 @@ export default function AccountDetailPage() {
                           "Henüz İade Edilmedi"
                         )}
                       </TableCell>
+
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           <div className="w-8 h-8 flex items-center justify-center">
@@ -1112,12 +1129,11 @@ export default function AccountDetailPage() {
                           </div>
                           <span>
                             {assignment.initial_flex_league || "Unranked"}{" "}
-                            {assignment.initial_flex_lp
-                              ? `${assignment.initial_flex_lp} LP`
-                              : ""}
+                            {assignment.initial_flex_lp ? `${assignment.initial_flex_lp} LP` : ""}
                           </span>
                         </div>
                       </TableCell>
+
                       <TableCell>
                         {assignment.flex_league_at_return ? (
                           <div className="flex items-center space-x-2">
@@ -1143,12 +1159,10 @@ export default function AccountDetailPage() {
                       </TableCell>
                     </TableRow>
                   ))}
+
                   {assignments.length === 0 && (
                     <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className="text-center py-8 text-muted-foreground"
-                      >
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         Bu hesap henüz kiralanmamış.
                       </TableCell>
                     </TableRow>
