@@ -109,7 +109,10 @@ export default function AccountsPage() {
     runPool(accounts, 4, async (acc) => {
       const riotId = splitRiotId(acc.nickname);
       if (!riotId) {
-        setRiot((p) => ({ ...p, [acc.id]: { error: "Riot ID hatalı (Name#TAG)" } }));
+        setRiot((p) => ({
+          ...p,
+          [acc.id]: { error: "Riot ID hatalı (Name#TAG)" },
+        }));
         return;
       }
 
@@ -127,14 +130,18 @@ export default function AccountsPage() {
         }
         const accJson = await accRes.json();
 
-        const sumRes = await fetch(`/api/riot-proxy/summoner/${plat}/${accJson.puuid}`);
+        const sumRes = await fetch(
+          `/api/riot-proxy/summoner/${plat}/${accJson.puuid}`
+        );
         if (!sumRes.ok) {
           const t = await sumRes.text().catch(() => "");
           throw new Error(`summoner ${sumRes.status} ${t}`);
         }
         const sumJson = await sumRes.json();
 
-        const rankRes = await fetch(`/api/riot-proxy/ranked/${plat}/${sumJson.id}`);
+        const rankRes = await fetch(
+          `/api/riot-proxy/ranked/${plat}/${sumJson.id}`
+        );
         if (!rankRes.ok) {
           const t = await rankRes.text().catch(() => "");
           throw new Error(`ranked ${rankRes.status} ${t}`);
@@ -159,7 +166,9 @@ export default function AccountsPage() {
       } catch (e: any) {
         setRiot((p) => ({
           ...p,
-          [acc.id]: { error: e?.message ? String(e.message).slice(0, 200) : "Riot yok" },
+          [acc.id]: {
+            error: e?.message ? String(e.message).slice(0, 200) : "Riot yok",
+          },
         }));
       }
     });
@@ -182,8 +191,7 @@ export default function AccountsPage() {
 
     setSaving(true);
 
-    // En güvenlisi: sadece kesin bildiğimiz kolonları insert et.
-    // (DB’de ekstra kolon zorunluysa error döner, onu ekranda göstereceğiz.)
+    // Sadece kesin kolonları insert et
     const { error } = await supabase.from("game_accounts").insert({
       nickname: nick,
       server: srv,
@@ -296,7 +304,8 @@ export default function AccountsPage() {
                   <option value="RU">RU</option>
                 </select>
                 <div className="text-xs opacity-60">
-                  Not: DB’de EUW/TR gibi durabilir, biz proxy’de otomatik euw1/tr1’e çeviriyoruz.
+                  Not: DB’de EUW/TR gibi durabilir, biz proxy’de otomatik
+                  euw1/tr1’e çeviriyoruz.
                 </div>
               </div>
 
@@ -333,7 +342,8 @@ export default function AccountsPage() {
           {sortedAccounts.map((a) => (
             <div key={a.id} className="border p-4 rounded">
               <div className="font-semibold">
-                {a.nickname} <span className="opacity-60">({a.server})</span>
+                {a.nickname}{" "}
+                <span className="opacity-60">({a.server})</span>
               </div>
 
               {riot[a.id]?.error ? (
